@@ -1,86 +1,49 @@
-import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-import { connectDB } from "./config/db";
-import { getApiEnv } from "./config/env";
-import { getLiveness, getReadiness } from "./modules/health/health.controller";
-import { stellarService } from "./config/stellar";
-import reportsRoutes from "./modules/reports/reports.routes";
-import authRoutes from "./modules/auth/auth.routes";
-import mediaRoutes from "./modules/media/media.routes";
-import { startMediaProcessingWorker } from "./modules/media/media.queue";
-import {
-  ensureMediaCleanupSchedule,
-  startMediaCleanupWorker,
-} from "./modules/media/media.cleanup.queue";
-import { startStellarAnchorWorker } from "./modules/reports/reports.anchor.queue";
-import { logger } from "./core/logging/logger";
-import { requestLogger } from "./core/logging/request-logger.middleware";
-import { errorHandler, notFoundHandler } from "./core/errors/error-handler";
-import { tieredApiRateLimiter } from "./core/rate-limit/rate-limit.middleware";
+import express from "express";
+import helmet from "helmet";
+import morgan from "morgan";
+import { z } from "zod";
 
-dotenv.config();
+import { readServiceEnv } from "@sidewalk/config";
+import type { ApiHealth, AuthStatus } from "@sidewalk/types";
+
+const env = readServiceEnv(
+  "api",
+  z.object({
+    PORT: z.coerce.number().default(4000),
+    APP_ENV: z.enum(["development", "test", "production"]).default("development"),
+    JWT_SECRET: z.string().min(8).default("replace-me"),
+    ALLOWED_ORIGIN: z.string().url().default("http://localhost:3000")
+  })
+);
 
 const app = express();
-const env = getApiEnv();
-const PORT = env.PORT;
 
-app.set("trust proxy", 1);
-
-// Root level health checks
-app.get("/live", getLiveness);
-app.get("/ready", getReadiness);
-app.get("/api/health", getReadiness);
-
-app.use(cors());
+app.use(helmet());
+app.use(cors({ origin: env.ALLOWED_ORIGIN, credentials: true }));
 app.use(express.json());
-app.use(requestLogger);
-app.use("/api", tieredApiRateLimiter);
-app.use("/api/auth", authRoutes);
-app.use("/api/reports", reportsRoutes);
-app.use("/api/media", mediaRoutes);
-app.use(notFoundHandler);
-app.use(errorHandler);
+app.use(morgan("dev"));
 
-const startServer = async () => {
-  try {
-    await connectDB();
+app.get("/health", (_request, response) => {
+  const payload: ApiHealth = {
+    service: "api",
+    status: "ok",
+    timestamp: new Date().toISOString()
+  };
 
-    logger.info("Initializing Stellar service");
-    await stellarService.ensureFunded();
-
-    if (env.ENABLE_MEDIA_WORKER !== "false") {
-      startMediaProcessingWorker();
-      startMediaCleanupWorker();
-      await ensureMediaCleanupSchedule();
-      logger.info("Media workers initialized (processing + orphan cleanup)");
-    }
-
-    if (env.ENABLE_STELLAR_ANCHOR_WORKER !== "false") {
-      startStellarAnchorWorker();
-      logger.info("Stellar anchor worker initialized");
-    }
-
-    app.listen(PORT, () => {
-      logger.info("Server started", { port: PORT });
-    });
-  } catch (error) {
-    logger.error("Server bootstrap failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(1);
-  }
-};
-
-process.on("unhandledRejection", (reason) => {
-  logger.error("Unhandled promise rejection", {
-    reason: reason instanceof Error ? reason.message : String(reason),
-  });
+  response.json(payload);
 });
 
-process.on("uncaughtException", (error) => {
-  logger.error("Uncaught exception", { error: error.message });
-  process.exit(1);
+app.get("/auth/status", (_request, response) => {
+  const payload: AuthStatus = {
+    phase: "foundation",
+    ready: false,
+    nextStep: "Build signup, login, session, and recovery flows in Authentication batch 1."
+  };
+
+  response.json(payload);
 });
 
-startServer();
+app.listen(env.PORT, () => {
+  console.log(`@sidewalk/api listening on http://localhost:${env.PORT}`);
+});

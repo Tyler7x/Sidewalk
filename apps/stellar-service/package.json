@@ -1,5 +1,5 @@
 {
-  "name": "@sidewalk/api",
+  "name": "@sidewalk/stellar-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,16 +13,12 @@
   "dependencies": {
     "@sidewalk/config": "workspace:*",
     "@sidewalk/types": "workspace:*",
-    "cors": "^2.8.5",
+    "@stellar/stellar-sdk": "^13.1.0",
     "express": "^5.1.0",
-    "helmet": "^8.1.0",
-    "morgan": "^1.10.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.1",
-    "@types/morgan": "^1.9.10",
     "tsx": "^4.19.4"
   }
 }
