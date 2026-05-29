@@ -19,13 +19,17 @@ export type LoginRequest = {
   password: string;
 };
 
-/**
- * Minimal session data returned on successful login.
- * Transport-agnostic: the token field carries a JWT for bearer flows;
- * cookie-backed sessions can ignore it and rely on Set-Cookie instead.
- */
-export type LoginResponse = {
-  token: string;
+// ── Session tokens ────────────────────────────────────────────────────────────
+
+/** Opaque token pair returned on login and refresh. */
+export type SessionTokens = {
+  /** Opaque access token (base64url-encoded session id). */
+  accessToken: string;
+  /** Opaque refresh token used to rotate the session. */
+  refreshToken: string;
+};
+
+export type LoginResponse = SessionTokens & {
   account: {
     id: string;
     email: string;
@@ -33,13 +37,24 @@ export type LoginResponse = {
   };
 };
 
+// ── Refresh ───────────────────────────────────────────────────────────────────
+
+export type RefreshRequest = { refreshToken: string };
+export type RefreshResponse = SessionTokens;
+
+// ── Logout ────────────────────────────────────────────────────────────────────
+
+export type LogoutResponse = { message: string };
+
 // ── Shared error shape ────────────────────────────────────────────────────────
 
 export type AuthErrorCode =
   | "VALIDATION_ERROR"
   | "EMAIL_TAKEN"
   | "INVALID_CREDENTIALS"
-  | "ACCOUNT_UNVERIFIED";
+  | "ACCOUNT_UNVERIFIED"
+  | "INVALID_TOKEN"
+  | "SESSION_NOT_FOUND";
 
 export type AuthErrorResponse = {
   code: AuthErrorCode;
