@@ -22,6 +22,8 @@ import { toPublic } from "./models/account.js";
 import { hashPassword, verifyPassword } from "./services/password.js";
 import { MemorySessionStore } from "./services/sessionStore.js";
 import { MemoryTokenStore } from "./services/tokenStore.js";
+import { LockoutService } from "./services/lockout.js";
+import { MemorySuspiciousLoginLogger } from "./services/suspiciousLogin.js";
 import {
   loginRateLimit,
   registerRateLimit,
@@ -51,6 +53,10 @@ const accounts = new Map<string, Account>();
 let nextId = 1;
 export const sessionStore = new MemorySessionStore();
 export const tokenStore = new MemoryTokenStore();
+export const lockoutService = new LockoutService(
+  env.APP_ENV === "test" ? { maxFailures: 3, durationMs: 1000 } : {}
+);
+export const suspiciousLoginLogger = new MemorySuspiciousLoginLogger();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -164,13 +170,28 @@ app.post("/auth/login", loginRateLimit, async (req, res) => {
   }
 
   const { email, password } = parsed.data;
+  const ip = req.ip ?? "unknown";
   const account = [...accounts.values()].find((a) => a.email === email);
+
+  // Check lockout before verifying password to avoid timing leaks
+  if (account && lockoutService.isLocked(account.id)) {
+    suspiciousLoginLogger.record({ timestamp: new Date().toISOString(), email, ip, reason: "ACCOUNT_LOCKED" });
+    const err: AuthErrorResponse = { code: "ACCOUNT_LOCKED", message: "Account temporarily locked. Please try again later." };
+    res.status(403).json(err);
+    return;
+  }
+
   if (!account || !(await verifyPassword(password, account.passwordHash))) {
+    if (account) {
+      lockoutService.recordFailure(account.id);
+    }
+    suspiciousLoginLogger.record({ timestamp: new Date().toISOString(), email, ip, reason: "INVALID_CREDENTIALS" });
     const err: AuthErrorResponse = { code: "INVALID_CREDENTIALS", message: "Invalid email or password." };
     res.status(401).json(err);
     return;
   }
 
+  lockoutService.recordSuccess(account.id);
   const session = sessionStore.create(account.id);
   const body: LoginResponse = {
     accessToken: session.sessionId,

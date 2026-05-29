@@ -425,3 +425,122 @@ describe("auth rate limiting", () => {
     expect(passed).toBe(true);
   });
 });
+
+// ── suspicious login logger ───────────────────────────────────────────────────
+
+import { MemorySuspiciousLoginLogger } from "../services/suspiciousLogin.js";
+
+describe("MemorySuspiciousLoginLogger", () => {
+  it("records a suspicious event and returns it via getAll", () => {
+    const logger = new MemorySuspiciousLoginLogger();
+    const event = { timestamp: new Date().toISOString(), email: "a@b.com", ip: "1.2.3.4", reason: "INVALID_CREDENTIALS" as const };
+    logger.record(event);
+    expect(logger.getAll()).toHaveLength(1);
+    expect(logger.getAll()[0]).toEqual(event);
+  });
+
+  it("does not include passwords or tokens in the event shape", () => {
+    const logger = new MemorySuspiciousLoginLogger();
+    const event = { timestamp: new Date().toISOString(), email: "a@b.com", ip: "1.2.3.4", reason: "ACCOUNT_LOCKED" as const };
+    logger.record(event);
+    const recorded = logger.getAll()[0];
+    expect(recorded).not.toHaveProperty("password");
+    expect(recorded).not.toHaveProperty("token");
+  });
+});
+
+// ── lockout service ───────────────────────────────────────────────────────────
+
+import { LockoutService } from "../services/lockout.js";
+
+describe("LockoutService", () => {
+  it("is not locked before any failures", () => {
+    const svc = new LockoutService({ maxFailures: 3, durationMs: 60_000 });
+    expect(svc.isLocked("acc1")).toBe(false);
+  });
+
+  it("locks after maxFailures consecutive failures", () => {
+    const svc = new LockoutService({ maxFailures: 3, durationMs: 60_000 });
+    svc.recordFailure("acc1");
+    svc.recordFailure("acc1");
+    expect(svc.isLocked("acc1")).toBe(false);
+    svc.recordFailure("acc1");
+    expect(svc.isLocked("acc1")).toBe(true);
+  });
+
+  it("clears lockout after durationMs has elapsed", async () => {
+    const svc = new LockoutService({ maxFailures: 2, durationMs: 50 });
+    svc.recordFailure("acc1");
+    svc.recordFailure("acc1");
+    expect(svc.isLocked("acc1")).toBe(true);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(svc.isLocked("acc1")).toBe(false);
+  });
+
+  it("resets failure counter on success", () => {
+    const svc = new LockoutService({ maxFailures: 3, durationMs: 60_000 });
+    svc.recordFailure("acc1");
+    svc.recordFailure("acc1");
+    svc.recordSuccess("acc1");
+    svc.recordFailure("acc1"); // only 1 failure after reset
+    expect(svc.isLocked("acc1")).toBe(false);
+  });
+});
+
+// ── login lockout integration ─────────────────────────────────────────────────
+
+import { lockoutService, suspiciousLoginLogger } from "../app.js";
+
+describe("login lockout and suspicious event logging", () => {
+  const email = "lockout@example.com";
+
+  it("records INVALID_CREDENTIALS event on bad password", async () => {
+    await request(app).post("/auth/register").send({ email: "spy@example.com", password: "password123" });
+    const before = suspiciousLoginLogger.getAll().length;
+    await request(app).post("/auth/login").send({ email: "spy@example.com", password: "wrongpass" });
+    const events = suspiciousLoginLogger.getAll();
+    expect(events.length).toBe(before + 1);
+    expect(events[events.length - 1].reason).toBe("INVALID_CREDENTIALS");
+    expect(events[events.length - 1].email).toBe("spy@example.com");
+    expect(events[events.length - 1]).not.toHaveProperty("password");
+  });
+
+  it("returns 403 ACCOUNT_LOCKED after threshold failures and logs the event", async () => {
+    await request(app).post("/auth/register").send({ email, password: "password123" });
+    // Exhaust the 3-failure test threshold
+    await request(app).post("/auth/login").send({ email, password: "bad" });
+    await request(app).post("/auth/login").send({ email, password: "bad" });
+    await request(app).post("/auth/login").send({ email, password: "bad" });
+
+    const res = await request(app).post("/auth/login").send({ email, password: "password123" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("ACCOUNT_LOCKED");
+
+    const events = suspiciousLoginLogger.getAll();
+    const lockEvent = events.find((e) => e.reason === "ACCOUNT_LOCKED" && e.email === email);
+    expect(lockEvent).toBeDefined();
+  });
+});
+
+// ── auth response envelope (issue #331) ──────────────────────────────────────
+
+describe("auth response envelope shape", () => {
+  it("register returns id, email, verified, createdAt", async () => {
+    const res = await request(app).post("/auth/register").send({ email: "env1@example.com", password: "password123" });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ email: "env1@example.com", verified: false });
+    expect(typeof res.body.id).toBe("string");
+    expect(typeof res.body.createdAt).toBe("string");
+    expect(res.body).not.toHaveProperty("passwordHash");
+  });
+
+  it("login returns accessToken, refreshToken, and account basics", async () => {
+    await request(app).post("/auth/register").send({ email: "env2@example.com", password: "password123" });
+    const res = await request(app).post("/auth/login").send({ email: "env2@example.com", password: "password123" });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.accessToken).toBe("string");
+    expect(typeof res.body.refreshToken).toBe("string");
+    expect(res.body.account).toMatchObject({ email: "env2@example.com", verified: false });
+    expect(res.body.account).not.toHaveProperty("passwordHash");
+  });
+});
