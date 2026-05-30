@@ -31,12 +31,15 @@ import {
   verifyResendRateLimit
 } from "./middleware/authRateLimit.js";
 import { recordAuthEvent, getMetrics } from "./services/authMetrics.js";
+import { authAuditLog } from "./services/authAuditLog.js";
 
 const env = readServiceEnv(
   "api",
   z.object({
     PORT: z.coerce.number().default(4000),
     APP_ENV: z.enum(["development", "test", "production"]).default("development"),
+    ENABLE_DEV_AUTH_SHORTCUTS: z.enum(["true", "false"]).default("false"),
+    ENABLE_AUTH_SESSION_LIST: z.enum(["true", "false"]).default("false"),
     JWT_SECRET: z.string().min(8).default("replace-me"),
     ALLOWED_ORIGIN: z.string().url().default("http://localhost:3000")
   })
@@ -97,6 +100,7 @@ app.post("/auth/register", registerRateLimit, async (req, res) => {
   const t0 = Date.now();
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
+    authAuditLog(req, "register", "failure", { code: "VALIDATION_ERROR" });
     recordAuthEvent("register", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
     res.status(400).json(err);
@@ -105,6 +109,7 @@ app.post("/auth/register", registerRateLimit, async (req, res) => {
 
   const { email, password } = parsed.data;
   if ([...accounts.values()].some((a) => a.email === email)) {
+    authAuditLog(req, "register", "failure", { code: "EMAIL_TAKEN", email });
     recordAuthEvent("register", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "EMAIL_TAKEN", message: "Email already registered." };
     res.status(409).json(err);
@@ -129,6 +134,7 @@ app.post("/auth/register", registerRateLimit, async (req, res) => {
   }
 
   recordAuthEvent("register", "success", Date.now() - t0);
+  authAuditLog(req, "register", "success", { accountId: account.id, email });
   const pub = toPublic(account);
   const body: RegisterResponse = { id: pub.id, email: pub.email, verified: pub.verified, createdAt: pub.createdAt.toISOString() };
   res.status(201).json(body);
@@ -140,6 +146,7 @@ app.post("/auth/verify-email", verifyResendRateLimit, (req, res) => {
   const t0 = Date.now();
   const parsed = verifyEmailSchema.safeParse(req.body);
   if (!parsed.success) {
+    authAuditLog(req, "verify_email", "failure", { code: "VALIDATION_ERROR" });
     recordAuthEvent("verify_email", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
     res.status(400).json(err);
@@ -148,6 +155,7 @@ app.post("/auth/verify-email", verifyResendRateLimit, (req, res) => {
 
   const accountId = tokenStore.consume(parsed.data.token, "verify");
   if (!accountId) {
+    authAuditLog(req, "verify_email", "failure", { code: "INVALID_TOKEN" });
     recordAuthEvent("verify_email", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Verification token is invalid or expired." };
     res.status(400).json(err);
@@ -156,6 +164,7 @@ app.post("/auth/verify-email", verifyResendRateLimit, (req, res) => {
 
   const account = accounts.get(accountId);
   if (!account) {
+    authAuditLog(req, "verify_email", "failure", { code: "INVALID_TOKEN" });
     recordAuthEvent("verify_email", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Verification token is invalid or expired." };
     res.status(400).json(err);
@@ -165,6 +174,7 @@ app.post("/auth/verify-email", verifyResendRateLimit, (req, res) => {
   account.verified = true;
   account.updatedAt = new Date();
   recordAuthEvent("verify_email", "success", Date.now() - t0);
+  authAuditLog(req, "verify_email", "success", { accountId: account.id });
   const body: VerifyEmailResponse = { message: "Email verified." };
   res.status(200).json(body);
 });
@@ -175,6 +185,7 @@ app.post("/auth/login", loginRateLimit, async (req, res) => {
   const t0 = Date.now();
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
+    authAuditLog(req, "login", "failure", { code: "VALIDATION_ERROR" });
     recordAuthEvent("login", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
     res.status(400).json(err);
@@ -187,6 +198,7 @@ app.post("/auth/login", loginRateLimit, async (req, res) => {
 
   // Check lockout before verifying password to avoid timing leaks
   if (account && lockoutService.isLocked(account.id)) {
+    authAuditLog(req, "login", "failure", { code: "ACCOUNT_LOCKED", email });
     suspiciousLoginLogger.record({ timestamp: new Date().toISOString(), email, ip, reason: "ACCOUNT_LOCKED" });
     recordAuthEvent("login", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "ACCOUNT_LOCKED", message: "Account temporarily locked. Please try again later." };
@@ -208,6 +220,7 @@ app.post("/auth/login", loginRateLimit, async (req, res) => {
   lockoutService.recordSuccess(account.id);
   const session = sessionStore.create(account.id);
   recordAuthEvent("login", "success", Date.now() - t0);
+  authAuditLog(req, "login", "success", { accountId: account.id, email });
   const body: LoginResponse = {
     accessToken: session.sessionId,
     refreshToken: session.refreshToken,
@@ -228,6 +241,10 @@ app.post("/auth/refresh", (req, res) => {
 
   const existing = sessionStore.getByRefreshToken(parsed.data.refreshToken);
   if (!existing) {
+    const suspectedReuse = sessionStore.wasRefreshTokenSeen(parsed.data.refreshToken);
+    if (suspectedReuse) {
+      authAuditLog(req, "login", "failure", { code: "REFRESH_REUSE_DETECTED" });
+    }
     const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Refresh token is invalid or already used." };
     res.status(401).json(err);
     return;
@@ -245,6 +262,7 @@ app.post("/auth/password-reset/request", resetRateLimit, (req, res) => {
   const t0 = Date.now();
   const parsed = resetRequestSchema.safeParse(req.body);
   if (!parsed.success) {
+    authAuditLog(req, "password_reset_request", "failure", { code: "VALIDATION_ERROR" });
     recordAuthEvent("password_reset", "failure", Date.now() - t0);
     const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
     res.status(400).json(err);
@@ -260,6 +278,7 @@ app.post("/auth/password-reset/request", resetRateLimit, (req, res) => {
   }
 
   recordAuthEvent("password_reset", "success", Date.now() - t0);
+  authAuditLog(req, "password_reset_request", "success", { email: parsed.data.email });
   const body: PasswordResetRequestResponse = {
     message: "If that email is registered you will receive a reset link shortly."
   };
@@ -271,6 +290,7 @@ app.post("/auth/password-reset/request", resetRateLimit, (req, res) => {
 app.post("/auth/password-reset/complete", resetRateLimit, async (req, res) => {
   const parsed = resetCompleteSchema.safeParse(req.body);
   if (!parsed.success) {
+    authAuditLog(req, "password_reset_complete", "failure", { code: "VALIDATION_ERROR" });
     const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
     res.status(400).json(err);
     return;
@@ -278,6 +298,7 @@ app.post("/auth/password-reset/complete", resetRateLimit, async (req, res) => {
 
   const accountId = tokenStore.consume(parsed.data.token, "reset");
   if (!accountId) {
+    authAuditLog(req, "password_reset_complete", "failure", { code: "INVALID_TOKEN" });
     const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Reset token is invalid or expired." };
     res.status(400).json(err);
     return;
@@ -285,6 +306,7 @@ app.post("/auth/password-reset/complete", resetRateLimit, async (req, res) => {
 
   const account = accounts.get(accountId);
   if (!account) {
+    authAuditLog(req, "password_reset_complete", "failure", { code: "INVALID_TOKEN" });
     const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Reset token is invalid or expired." };
     res.status(400).json(err);
     return;
@@ -297,7 +319,38 @@ app.post("/auth/password-reset/complete", resetRateLimit, async (req, res) => {
   sessionStore.revokeAll(accountId);
 
   const body: PasswordResetCompleteResponse = { message: "Password updated. Please log in again." };
+  authAuditLog(req, "password_reset_complete", "success", { accountId: account.id });
   res.status(200).json(body);
+});
+
+// Development-only shortcut for local auth fixture seeding.
+app.post("/auth/dev/seed-user", async (req, res) => {
+  if (env.APP_ENV !== "development" || env.ENABLE_DEV_AUTH_SHORTCUTS !== "true") {
+    const err: AuthErrorResponse = { code: "NOT_FOUND", message: "Route not found." };
+    res.status(404).json(err);
+    return;
+  }
+
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const err: AuthErrorResponse = { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message };
+    res.status(400).json(err);
+    return;
+  }
+
+  const { email, password } = parsed.data;
+  const now = new Date();
+  const account: Account = {
+    id: String(nextId++),
+    email,
+    passwordHash: await hashPassword(password),
+    verified: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  accounts.set(account.id, account);
+  authAuditLog(req, "register", "success", { accountId: account.id, shortcut: true });
+  res.status(201).json({ id: account.id, email: account.email, verified: true });
 });
 
 // ── Logout (single device) ────────────────────────────────────────────────────
@@ -348,6 +401,27 @@ app.post("/auth/logout/all", (req, res) => {
 
 app.get("/auth/metrics", (_req, res) => {
   res.json(getMetrics());
+});
+
+app.get("/auth/sessions", (req, res) => {
+  if (env.ENABLE_AUTH_SESSION_LIST !== "true") {
+    const err: AuthErrorResponse = { code: "NOT_FOUND", message: "Route not found." };
+    res.status(404).json(err);
+    return;
+  }
+  const token = bearerToken(req.headers.authorization);
+  if (!token) {
+    const err: AuthErrorResponse = { code: "INVALID_TOKEN", message: "Missing or malformed Authorization header." };
+    res.status(401).json(err);
+    return;
+  }
+  const session = sessionStore.getBySessionId(token);
+  if (!session) {
+    const err: AuthErrorResponse = { code: "SESSION_NOT_FOUND", message: "Session not found or already revoked." };
+    res.status(404).json(err);
+    return;
+  }
+  res.status(200).json([{ sessionId: session.sessionId, createdAt: session.createdAt.toISOString() }]);
 });
 
 export { env };

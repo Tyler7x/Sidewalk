@@ -19,6 +19,8 @@ export interface SessionStore {
   getBySessionId(sessionId: string): Session | undefined;
   /** Look up a session by its refreshToken. Returns undefined if not found or already rotated. */
   getByRefreshToken(refreshToken: string): Session | undefined;
+  /** Returns true when token was previously valid but has been rotated/revoked. */
+  wasRefreshTokenSeen(refreshToken: string): boolean;
   /** Rotate the refresh token for a session; invalidates the old refreshToken. */
   rotate(sessionId: string): Session;
   /** Revoke a single session. */
@@ -39,6 +41,7 @@ export class MemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
   /** refreshToken → sessionId index for O(1) lookup */
   private readonly byRefresh = new Map<string, string>();
+  private readonly seenRefreshTokens = new Set<string>();
 
   create(accountId: string): Session {
     const session: Session = {
@@ -49,6 +52,7 @@ export class MemorySessionStore implements SessionStore {
     };
     this.sessions.set(session.sessionId, session);
     this.byRefresh.set(session.refreshToken, session.sessionId);
+    this.seenRefreshTokens.add(session.refreshToken);
     return session;
   }
 
@@ -61,6 +65,10 @@ export class MemorySessionStore implements SessionStore {
     return sessionId ? this.sessions.get(sessionId) : undefined;
   }
 
+  wasRefreshTokenSeen(refreshToken: string): boolean {
+    return this.seenRefreshTokens.has(refreshToken);
+  }
+
   rotate(sessionId: string): Session {
     const existing = this.sessions.get(sessionId);
     if (!existing) throw new Error("Session not found");
@@ -71,6 +79,7 @@ export class MemorySessionStore implements SessionStore {
     const updated: Session = { ...existing, refreshToken: newToken() };
     this.sessions.set(sessionId, updated);
     this.byRefresh.set(updated.refreshToken, sessionId);
+    this.seenRefreshTokens.add(updated.refreshToken);
     return updated;
   }
 
