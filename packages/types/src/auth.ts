@@ -100,11 +100,11 @@ export type AuthErrorResponse = {
   message: string;
 };
 
-// ── Session payload (#390) ────────────────────────────────────────────────────
+// ── Shared domain types ───────────────────────────────────────────────────────
 
 /**
- * The public account shape — safe to include in any client-facing payload.
- * No password hashes, internal flags, or audit timestamps.
+ * The public account shape shared across web, mobile, and API.
+ * Contains only client-safe fields — no password hashes or internal flags.
  */
 export type AuthUser = {
   id: string;
@@ -113,12 +113,30 @@ export type AuthUser = {
 };
 
 /**
- * Client-safe session payload: the account identity plus opaque tokens.
- * All workspaces (web, mobile, internal services) should depend on this
- * shape rather than ad-hoc inline types.
+ * Client-safe session payload: the user identity plus opaque tokens.
+ * This is the canonical shape clients store and pass to authenticated requests.
  */
 export type AuthSessionPayload = SessionTokens & {
   user: AuthUser;
-  /** ISO-8601 timestamp of when the session was created. */
-  issuedAt: string;
+};
+
+/**
+ * Discriminated union representing the three possible auth states in any
+ * client (web, mobile). Use this as the single source of truth for
+ * auth-gated navigation and UI rendering.
+ */
+export type AuthState =
+  | { status: "loading" }
+  | { status: "signedOut" }
+  | { status: "unverified"; session: AuthSessionPayload }
+  | { status: "signedIn"; session: AuthSessionPayload };
+
+/**
+ * Represents the first post-authentication landing decision.
+ * Consumers pick between directing a new user to onboarding vs a returning
+ * user to their dashboard.
+ */
+export type AuthLandingContext = {
+  user: AuthUser;
+  isNewAccount: boolean;
 };
