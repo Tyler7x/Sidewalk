@@ -19,7 +19,7 @@ import {
   memoryTokenStore,
   requestPasswordReset,
 } from "./src/lib/authClient";
-import { parseResetLink } from "./src/lib/deepLinks";
+import { parseResetLink, parseVerifyEmailLink } from "./src/lib/deepLinks";
 import {
   friendlyAuthMessage,
   privacySafeResetMessage,
@@ -126,6 +126,12 @@ export default function App() {
   useEffect(() => {
     function handleUrl(nextUrl: string | null | undefined) {
       if (!nextUrl) return;
+      // #384 – check verification link before reset so dedicated routes are preferred
+      const verify = parseVerifyEmailLink(nextUrl);
+      if (verify) {
+        setRoute({ name: "verificationPending", email: undefined });
+        return;
+      }
       const reset = parseResetLink(nextUrl);
       if (reset) setRoute({ name: "resetPassword", token: reset.token });
     }
