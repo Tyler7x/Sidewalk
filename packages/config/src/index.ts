@@ -1,6 +1,6 @@
 export { authEnvSchema, validateAuthEnv } from './auth-env';
 export type { AuthEnv } from './auth-env';
 export { readServiceEnv } from './service-env';
-export { previewAuthEnvSchema, validatePreviewAuthEnv } from './preview-env';
-export type { PreviewAuthEnv } from './preview-env';
+export { stellarEnvSchema, validateStellarEnv } from './stellar-env';
+export type { StellarEnv } from './stellar-env';
 
