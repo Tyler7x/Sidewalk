@@ -71,6 +71,8 @@ The initial scaffold intentionally keeps secrets and third-party dependencies mi
 
 This repo is being prepared for public contributors. Keep changes scoped, document new environment variables, and prefer shared contracts in `packages/types` when multiple apps need the same shape.
 
+For auth UI conventions in the web workspace, see `apps/web/AUTH_CONTRIBUTING.md`.
+
 ## License
 
 MIT
