@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement, type FormEvent } from "react";
+import { Suspense, useState, type ReactElement, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
   PasswordResetCompleteRequest,
@@ -10,7 +10,7 @@ import { completePasswordReset } from "../../lib/authClient";
 
 type State = "idle" | "loading" | "done" | "invalid" | "error";
 
-export default function ResetPasswordPage(): ReactElement {
+function ResetPasswordForm(): ReactElement {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [state, setState] = useState<State>(token ? "idle" : "invalid");
@@ -130,5 +130,13 @@ export default function ResetPasswordPage(): ReactElement {
         </form>
       </div>
     </main>
+  );
+}
+
+export default function ResetPasswordPage(): ReactElement {
+  return (
+    <Suspense>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

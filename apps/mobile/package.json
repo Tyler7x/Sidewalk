@@ -16,6 +16,7 @@
     "react-native": "^0.79.2"
   },
   "devDependencies": {
+    "@types/node": "22",
     "@types/react": "^19.1.2",
     "babel-preset-expo": "^13.2.3"
   }

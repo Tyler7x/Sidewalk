@@ -121,20 +121,24 @@ export async function login(
 }
 
 export function saveTokens(tokens: SessionTokens): void {
+  if (typeof window === "undefined") return;
   sessionStorage.setItem(ACCESS_KEY, tokens.accessToken);
   sessionStorage.setItem(REFRESH_KEY, tokens.refreshToken);
 }
 
 export function clearTokens(): void {
+  if (typeof window === "undefined") return;
   sessionStorage.removeItem(ACCESS_KEY);
   sessionStorage.removeItem(REFRESH_KEY);
 }
 
 export function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
   return sessionStorage.getItem(ACCESS_KEY);
 }
 
 export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
   return sessionStorage.getItem(REFRESH_KEY);
 }
 

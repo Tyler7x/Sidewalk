@@ -20,6 +20,7 @@ export type Account = {
 export type AccountPublic = Omit<Account, "passwordHash">;
 
 export function toPublic(account: Account): AccountPublic {
-  const { passwordHash: _pw, ...pub } = account;
-  return pub;
+  const pub = { ...account };
+  delete (pub as Partial<Account>).passwordHash;
+  return pub as AccountPublic;
 }
