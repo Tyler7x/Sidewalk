@@ -11,14 +11,20 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sidewalk/types": "workspace:*",
-    "next": "^16.2.6",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "@sidewalk/shared": "workspace:*",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.3",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.6.3",
     "vitest": "3.2.2"
   }
 }
