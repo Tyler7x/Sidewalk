@@ -1,20 +1,21 @@
-import type { ReactElement, ReactNode } from "react";
 import type { Metadata } from "next";
+
+import { AuthProvider } from "../lib/authContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sidewalk Starter",
-  description: "Hackathon starter for rebuilding Sidewalk from scratch."
+  title: "Sidewalk",
+  description: "Sidewalk authentication"
 };
 
-export default function RootLayout({
-  children
-}: Readonly<{
-  children: ReactNode;
-}>): ReactElement {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          <main className="page">{children}</main>
+        </AuthProvider>
+      </body>
     </html>
   );
 }

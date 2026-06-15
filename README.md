@@ -155,17 +155,21 @@ By anchoring key events to Stellar, Sidewalk can provide stronger guarantees aro
 sidewalk/
 │
 ├── apps/
-│   ├── api/                # Core backend services
-│   ├── web/                # Web platform
-│   ├── mobile/             # Mobile application
-│   └── stellar-service/    # Stellar verification service
+│   ├── api/        # Authentication API (Express modular monolith)
+│   ├── web/        # Web authentication UI (Next.js)
+│   └── mobile/     # Mobile foundation (Expo + React Native)
 │
 ├── packages/
-│   ├── config/             # Shared configuration
-│   └── types/              # Shared TypeScript contracts
+│   ├── shared/      # Shared TypeScript types and validation schemas
+│   └── stellar/     # Stellar integration scaffold (no blockchain logic yet)
 │
-└── docs/
+└── docs/            # Environment, testing, and contributor documentation
 ```
+
+This is the foundational, hackathon-ready starting point for Sidewalk: a
+modular monolith authentication API, matching web and mobile foundations, and
+the package/CI/docs scaffolding needed to start building the rest of the
+platform described above.
 
 ---
 
@@ -175,17 +179,19 @@ sidewalk/
 
 `apps/api`
 
-The API serves as the central backend for Sidewalk.
+The API is a **modular monolith** built with Express and TypeScript. It is
+organized by business domain (`src/modules/auth`, `src/modules/users`) rather
+than by technical layer, with cross-cutting concerns in `src/shared`.
 
-Responsibilities include:
+Currently implemented:
 
-* authentication,
-* user management,
-* report management,
-* case tracking,
-* moderation workflows,
-* notification coordination,
-* communication with the Stellar service.
+* account registration,
+* login and access-token issuance,
+* an authenticated "current user" endpoint,
+* a health check endpoint.
+
+User data is persisted via Prisma to a local SQLite database by default
+(swap `DATABASE_URL` for a managed Postgres database in production).
 
 ---
 
@@ -193,19 +199,15 @@ Responsibilities include:
 
 `apps/web`
 
-The web platform provides a full-featured experience for citizens, moderators, administrators, and organizations.
+The web app is a Next.js (App Router) application providing the authentication
+UI:
 
-Potential functionality includes:
+* Login page (`/`),
+* Create Account page (`/register`),
+* client-side auth state management (token stored in `localStorage`).
 
-* report creation,
-* public case browsing,
-* report management,
-* verification visibility,
-* moderation interfaces,
-* administrative tools,
-* analytics dashboards.
-
-The web experience is intended to provide the richest view of the platform's data and workflows.
+No other pages exist yet — additional product surfaces from the roadmap below
+will be built as new modules on top of this foundation.
 
 ---
 
@@ -213,36 +215,22 @@ The web experience is intended to provide the richest view of the platform's dat
 
 `apps/mobile`
 
-The mobile application is designed for citizens reporting issues in real-world environments.
-
-Key use cases include:
-
-* submitting reports from the field,
-* attaching photos and evidence,
-* receiving updates,
-* tracking report progress,
-* engaging with local issues.
-
-The mobile experience prioritizes speed, accessibility, and ease of reporting.
+The mobile app is an Expo + React Native + TypeScript foundation: project
+setup, folder structure (`src/components`, `src/screens`, `src/navigation`,
+`src/hooks`, `src/services`, `src/utils`, `src/assets`), linting, formatting,
+and a working test setup. No screens or authentication flows are implemented
+yet — this is a starting point for future development.
 
 ---
 
-## Stellar Service
+## Stellar Package
 
-`apps/stellar-service`
+`packages/stellar`
 
-The Stellar service handles all blockchain-related functionality.
-
-Responsibilities include:
-
-* verification receipts,
-* trust records,
-* transaction generation,
-* blockchain communication,
-* verification lookups,
-* audit support.
-
-Separating Stellar functionality from the API keeps the architecture modular and easier to maintain.
+A scaffold package for the future Stellar integration described in the
+[Vision](#vision) section. It currently contains only placeholder types and
+interfaces with no blockchain functionality, so the package compiles and is
+ready for future implementation.
 
 ---
 
@@ -283,8 +271,10 @@ Run the primary applications:
 pnpm dev:api
 pnpm dev:web
 pnpm dev:mobile
-pnpm dev:stellar
 ```
+
+Once the API and web app are running, visit `http://localhost:3000` to create
+an account and log in.
 
 ---
 
@@ -295,6 +285,7 @@ Run validation and development checks:
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build
 pnpm check
 ```
@@ -307,12 +298,21 @@ Each application includes an example environment file:
 
 ```text
 apps/api/.env.example
-apps/stellar-service/.env.example
 apps/web/.env.example
 apps/mobile/.env.example
 ```
 
-Copy the appropriate file and configure environment variables before running services locally.
+Copy the appropriate file and configure environment variables before running
+services locally. See [docs/environment.md](docs/environment.md) for details
+on each variable and secrets handling.
+
+---
+
+# Documentation
+
+* [Environment Setup](docs/environment.md)
+* [Testing Guide](docs/testing.md)
+* [Contributor Guide](docs/contributing.md)
 
 ---
 
